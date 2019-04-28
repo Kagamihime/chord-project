@@ -10,4 +10,6 @@ int f(int n); // Hash function
 
 void simulator(void);
 
+int cmpfunc(const void *a, const void *b);
+
 #endif
