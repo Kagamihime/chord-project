@@ -6,12 +6,11 @@
 
 #define TAGINIT 0
 
-/* The identifier of a peer for exo1*/
-typedef struct id{
+/* The identifier of a peer for exo1 */
+typedef struct id {
     int id;     /* the MPI id */
     int hash;   /* the CHORD id */
-}ID;
-
+} ID;
 
 int f(int n); // Hash function
 
