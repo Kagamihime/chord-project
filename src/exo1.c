@@ -13,32 +13,29 @@
 #define INITIATOR 4
 #define FINISHED 5
 
-/* NUMBER OF SITES*/
-#define NB_SITES 5
-int nb_sites = NB_SITES+1;
-
 /* the maximum of keys one site can have */
 #define MAX_CAPACITY 10
 
 /* NODE SPECIFIC VARIABLES */
 int p; /* rank of the site */
 int ID_p; /*chord identifier f(p) */
-ID finger_p[NB_SITES]; /* finger table of p */
+ID finger_p[NB_PEERS]; /* finger table of p */
 ID succ_p;  /* the node's successor */
 int keys_p[MAX_CAPACITY]; /* the keys that belong to node p : note that here we don't mind about the keys */
 
 /* FOR THE MASTER SITE */
-int nodes[NB_SITES];
+int nodes[NB_PEERS];
 
 // The function that finds which node is responsible
 // for a value
 // Is used only by the master process in order
 // to calculate the finger tables
-int find_responsible(int val){
-    if(val >= (1<<M)){
+int find_responsible(int val)
+{
+    if(val >= (1 << M)) {
         val = val % (1<<M);
     }
-    for(int i = 0; i < NB_SITES; i++){
+    for(int i = 0; i < NB_PEERS; i++){
         if(val <= nodes[i]){
             return i;
         }
@@ -63,17 +60,17 @@ void sort_array(int *tab, int size){
 // and sending it to them
 void simulateur(void){
     int max = (1 << M) - 1;
-    for(int i = 0; i < NB_SITES; i++){
+    for(int i = 0; i < NB_PEERS; i++){
         nodes[i] = rand()%max;
     }
-    sort_array(nodes, NB_SITES);
-   for(int i = 0; i < NB_SITES; i++){
+    sort_array(nodes, NB_PEERS);
+    for(int i = 0; i < NB_PEERS; i++){
         printf("noeud %d : %d\n", i+1, nodes[i]);
     }
-    for(int i = 0; i < NB_SITES; i++) {
+    for(int i = 0; i < NB_PEERS; i++) {
         int rank = nodes[i];
         MPI_Send(&rank, 1, MPI_INT, i+1, INIT, MPI_COMM_WORLD);
-        for(int j = 0; j < NB_SITES; j++){
+        for(int j = 0; j < NB_PEERS; j++){
             int val = (nodes[i] + (1 << j)) % (1 << M);
             int respo = find_responsible(val)+1;
             MPI_Send(&respo, 1, MPI_INT, i+1, INIT, MPI_COMM_WORLD);
@@ -87,7 +84,7 @@ void simulateur(void){
 // has sent them
 void rcv_finger(){
     MPI_Status status;
-    for(int i = 0; i < NB_SITES; i++){
+    for(int i = 0; i < NB_PEERS; i++){
         int val;
         MPI_Recv(&val, 1, MPI_INT, 0, INIT, MPI_COMM_WORLD, &status);
         finger_p[i].id = val;
@@ -100,7 +97,7 @@ void rcv_finger(){
 
 void show_finger(){
     printf("I AM NODE %d this is my finger table\n", p);
-    for(int i = 0; i < NB_SITES; i++){
+    for(int i = 0; i < NB_PEERS; i++){
         printf("%d : %d contact %d\n",i,finger_p[i].hash,finger_p[i].id);
     }
 }
@@ -109,9 +106,10 @@ void show_finger(){
 // If there is no result from the finger table,
 // an ID {-1, -1} is returned to signal that we mustt
 // use the successor
-ID find_next(int hash){
+ID find_next(int hash)
+{
     int K = 1<<M;
-    for(int i = NB_SITES-1; i >=0; i--){
+    for (int i = NB_PEERS - 1; i >= 0; i--) {
         if(finger_p[i].hash < ID_p){
             if(hash >= finger_p[i].hash && hash < ID_p){
                 return finger_p[i];
@@ -122,7 +120,7 @@ ID find_next(int hash){
                 return finger_p[i];
             }
         }
-    }    
+    }
     ID err;
     err.hash = -1;
     err.id = -1;
@@ -139,7 +137,7 @@ int contains_key(int hash){
 // Function that returns true if the process rank
 // can be reached by p
 int contains_finger(int rank){
-    for(int i = 0; i < NB_SITES; i++){
+    for(int i = 0; i < NB_PEERS; i++){
         if(finger_p[i].id == rank){
             return 1;
         }
@@ -290,20 +288,22 @@ void receive(){
 
 
 
-int main(int argc, char *argv[]){
-    srand(time(NULL)); 
+int main(int argc, char *argv[])
+{
+    int nb_proc;
+
+    srand(time(NULL));
 
     MPI_Status status;
     MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &nb_sites);
+    MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
     MPI_Comm_rank(MPI_COMM_WORLD, &p);
 
-    if(p == 0){
+    if (p == 0) {
         simulateur();
-    }
-    else{
+    } else {
         MPI_Recv(&ID_p, 1, MPI_INT, 0, INIT, MPI_COMM_WORLD, &status);
-        
+
         rcv_finger();
         //show_finger();
     }
