@@ -11,7 +11,7 @@
 #define SEARCH 1
 #define RESULT 2
 #define INIT 3
-#define INITIATOR 4
+#define LOOKUP 4
 #define FINISHED 5
 
 /* the maximum of keys one site can have */
@@ -160,7 +160,8 @@ void receive()
     MPI_Status status;
 
     for (;;) {
-        int hash, caller, result, holder;
+        int hash, caller, result, holder, holder_rk;
+        int lookup_caller;
         ID dest;
 
         MPI_Recv(&hash, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
@@ -220,13 +221,15 @@ void receive()
                     MPI_Send(&hash, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&id_p, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
+                    MPI_Send(&p, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&result, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                 } else {
                     // If we initiated the search, we can warn the master the process that the algorithm is over
 
                     printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
 
-                    MPI_Send(&id_p, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD);
+                    MPI_Send(&id_p, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
+                    MPI_Send(&p, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                 }
 
                 break;
@@ -234,6 +237,7 @@ void receive()
             case RESULT:
                 MPI_Recv(&caller, 1, MPI_INT, status.MPI_SOURCE, RESULT, MPI_COMM_WORLD, &status);
                 MPI_Recv(&holder, 1, MPI_INT, status.MPI_SOURCE, RESULT, MPI_COMM_WORLD, &status);
+                MPI_Recv(&holder_rk, 1, MPI_INT, status.MPI_SOURCE, RESULT, MPI_COMM_WORLD, &status);
                 MPI_Recv(&result, 1, MPI_INT, status.MPI_SOURCE, RESULT, MPI_COMM_WORLD, &status);
 
                 // Message received when the result of the search is trying
@@ -244,15 +248,16 @@ void receive()
 
                     printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
 
-                    MPI_Send(&holder, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD);
-
+                    MPI_Send(&holder, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
+                    MPI_Send(&holder_rk, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                 } else {
                     // Else we must forward the result in the usual manner
 
                     ID target = find_next(caller);
 
                     if (target.hash == id_p) {
-                        MPI_Send(&holder, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD);
+                        MPI_Send(&holder, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
+                        MPI_Send(&holder_rk, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                     }
 
                     printf("sending RESULT from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
@@ -260,14 +265,17 @@ void receive()
                     MPI_Send(&hash, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&holder, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
+                    MPI_Send(&holder_rk, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&result, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                 }
 
                 break;
 
-            case INITIATOR:
+            case LOOKUP:
                 // Message received by the process that must initiate the algorithm
                 //
+
+                lookup_caller = status.MPI_SOURCE;
 
                 // Searches to whom the next message must be sent
                 dest = find_next(hash);
@@ -303,7 +311,23 @@ void receive()
     }
 }
 
+void join_dht(int rk, int entry_rk)
+{
+    MPI_Status status;
 
+    int id = f(rk);
+    int succ = -1;
+    int succ_rk = -1;
+    ID finger_table[M];
+
+    MPI_Send(&id, 1, MPI_INT, entry_rk, LOOKUP, MPI_COMM_WORLD);
+    MPI_Recv(&succ, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
+    MPI_Recv(&succ_rk, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
+
+    printf("I'm (%d,%d) and my successor is (%d,%d)!\n", rk, id, succ_rk, succ);
+
+    MPI_Send(&id, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD);
+}
 
 int main(int argc, char *argv[])
 {
@@ -315,9 +339,9 @@ int main(int argc, char *argv[])
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
 
-    if (nb_proc != NB_PEERS + 1) {
+    if (nb_proc != NB_PEERS + 2) {
         fprintf(stderr, "Incorrect number of processes!\n");
-        fprintf(stderr, "There should be %d\n", NB_PEERS + 1);
+        fprintf(stderr, "There should be %d\n", NB_PEERS + 2);
         goto failure;
     }
 
@@ -325,7 +349,7 @@ int main(int argc, char *argv[])
 
     if (p == 0) {
         simulateur();
-    } else {
+    } else if (p != nb_proc - 1) {
         MPI_Recv(&id_p, 1, MPI_INT, 0, INIT, MPI_COMM_WORLD, &status);
 
         rcv_finger();
@@ -336,24 +360,19 @@ int main(int argc, char *argv[])
     MPI_Barrier(MPI_COMM_WORLD);
 
     if (p == 0) {
-        // Randomly chooses a process initiateur to find the hash key
-        int initiator = rand() % NB_PEERS;
-        int key = rand() % (1 << M);
-        int holder;
-
-        MPI_Send(&key, 1, MPI_INT, initiator + 1, INITIATOR, MPI_COMM_WORLD);
-
-        printf("The process (%d, %d) has to search for the key %d.\n", initiator + 1, nodes[initiator], key);
+        int new_peer_id;
 
         // Waiting for the reception of the result
-        MPI_Recv(&holder, 1, MPI_INT, MPI_ANY_SOURCE, FINISHED, MPI_COMM_WORLD, &status);
+        MPI_Recv(&new_peer_id, 1, MPI_INT, MPI_ANY_SOURCE, FINISHED, MPI_COMM_WORLD, &status);
 
-        printf("RESULT : %d is the holder of the key %d\n", holder, key);
+        printf("[DEBUG] The new peer is (%d,%d)\n", nb_proc - 1, new_peer_id);
 
         // Broadcasting a message FINISHED to stop all the processes
         for (int i = 1; i < nb_proc; i++) {
-            MPI_Send(&holder, 1, MPI_INT, i, FINISHED, MPI_COMM_WORLD);
+            MPI_Send(&new_peer_id, 1, MPI_INT, i, FINISHED, MPI_COMM_WORLD);
         }
+    } else if (p == nb_proc - 1) {
+        join_dht(p, 1);
     } else {
         receive();
     }
