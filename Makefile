@@ -2,6 +2,12 @@ CC = mpicc
 CFLAGS = -Wall -std=c11
 COMPILE = $(CC) $(CFLAGS) -c
 
+exo1: exo1.o utils.o
+	$(CC) $^ -o $@
+
+exo1.o: src/exo1.c
+	$(COMPILE) $< -o $@
+
 init_dht: init_dht.o utils.o
 	$(CC) $^ -o $@
 
@@ -18,4 +24,4 @@ utils.o: src/utils.c src/utils.h
 	$(COMPILE) $< -o $@
 
 clean:
-	rm -f *.o init_dht skeleton
+	rm -f *.o exo1 init_dht skeleton
