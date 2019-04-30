@@ -46,20 +46,6 @@ int find_responsible(int val)
     return 0;
 }
 
-// TODO: Remove this for qsort
-void sort_array(int *tab, int size)
-{
-    for (int i = 0; i < size; i++) {
-        for (int j = 0; j < size; j++) {
-            if (tab[i] < tab[j]) {
-                int tmp = tab[i];
-                tab[i] = tab[j];
-                tab[j] = tmp;
-            }
-        }
-    }
-}
-
 // The function that initializes the graph
 // by calculating the finger table of each process
 // and sending it to them
@@ -71,7 +57,7 @@ void simulateur(void)
         nodes[i] = rand() % max;
     }
 
-    sort_array(nodes, NB_PEERS);
+    qsort(nodes, NB_PEERS, sizeof(int), cmpfunc);
 
     for (int i = 0; i < NB_PEERS; i++) {
         printf("noeud %d : %d\n", i + 1, nodes[i]);
