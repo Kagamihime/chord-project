@@ -313,6 +313,13 @@ int main(int argc, char *argv[])
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
+
+    if (nb_proc != NB_PEERS + 1) {
+        fprintf(stderr, "Incorrect number of processes!\n");
+        fprintf(stderr, "There should be %d\n", NB_PEERS + 1);
+        goto failure;
+    }
+
     MPI_Comm_rank(MPI_COMM_WORLD, &p);
 
     if (p == 0) {
@@ -352,4 +359,8 @@ int main(int argc, char *argv[])
 
    MPI_Finalize();
    exit(EXIT_SUCCESS);
+
+   failure:
+   MPI_Finalize();
+   exit(EXIT_FAILURE);
 }
