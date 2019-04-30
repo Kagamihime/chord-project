@@ -318,13 +318,43 @@ void join_dht(int rk, int entry_rk)
     int id = f(rk);
     int succ = -1;
     int succ_rk = -1;
-    ID finger_table[M];
+    int finger_keys[M];
+    ID finger_holders[M];
+
+    for (int i = 0; i < M; i++) {
+        finger_keys[i] = -1;
+    }
 
     MPI_Send(&id, 1, MPI_INT, entry_rk, LOOKUP, MPI_COMM_WORLD);
     MPI_Recv(&succ, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
     MPI_Recv(&succ_rk, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
 
     printf("I'm (%d,%d) and my successor is (%d,%d)!\n", rk, id, succ_rk, succ);
+
+    for (int i = 0; i < M; i++) {
+        int entry = (id + (1 << i)) % (1 << M);
+        int holder = -1, holder_rk = -1;
+
+        MPI_Send(&entry, 1, MPI_INT, entry_rk, LOOKUP, MPI_COMM_WORLD);
+        MPI_Recv(&holder, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
+        MPI_Recv(&holder_rk, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
+
+        for (int i = 0; i < M; i++) {
+            if (finger_keys[i] == -1) {
+                finger_keys[i] = entry;
+                finger_holders[i].id = holder_rk;
+                finger_holders[i].hash = holder;
+
+                break;
+            }
+        }
+    }
+
+    printf("\nFinger table of the new peer:\n");
+
+    for (int i = 0; i < M; i++) {
+        printf("%d: (%d,%d)\n", finger_keys[i], finger_holders[i].id, finger_holders[i].hash);
+    }
 
     MPI_Send(&id, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD);
 }
