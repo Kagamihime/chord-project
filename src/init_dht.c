@@ -317,6 +317,7 @@ int main(int argc, char *argv[])
 
     if (nb_proc != NB_PEERS + 1) {
         fprintf(stderr, "Incorrect number of processes!\n");
+        fprintf(stderr, "There should be %d\n", NB_PEERS + 1);
         goto failure;
     }
 
