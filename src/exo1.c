@@ -1,9 +1,10 @@
-#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "utils.h"
 
+#include <mpi.h>
+
+#include "utils.h"
 
 /* TAG TYPES*/
 #define FORWARD 0
