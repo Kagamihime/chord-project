@@ -79,7 +79,7 @@ void simulateur(void)
     qsort(nodes, NB_PEERS, sizeof(int), cmpfunc);
 
     for (int i = 0; i < NB_PEERS; i++) {
-        printf("noeud %d : %d\n", i + 1, nodes[i]);
+        printf("Node MPI rank: %d. Node Chord ID: %d\n", i + 1, nodes[i]);
     }
 
     for (int i = 0; i < NB_PEERS; i++) {
@@ -217,8 +217,6 @@ void receive()
 
                 ID target = find_next(hash);
 
-                // printf("Process (%d, %d) received a FORWARD.\n", p, id_p);
-
                 if (status.MPI_SOURCE == p) {
                     printf("problem\n");
 
@@ -229,14 +227,10 @@ void receive()
                     // If the key isn't included in any of the finger table's intervals
                     // the successor is in charge of the key, we must warn it
 
-                    // printf("sending SEARCH from (%d,%d) to  SUCCESSOR (%d,%d)\n", p, id_p, succ_p.id, succ_p.hash);
-
                     MPI_Send(&hash, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                 } else {
                     // else juste forward the request to the process found earlier
-
-                    // printf("sending FORWARD from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, target.id, FORWARD, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, FORWARD, MPI_COMM_WORLD);
@@ -256,9 +250,6 @@ void receive()
 
                     ID target = find_next(caller);
 
-                    // printf("process (%d, %d) contains the key.\n", p, id_p);
-                    // printf("sending RESULT from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
-
                     MPI_Send(&hash, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&id_p, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
@@ -266,8 +257,6 @@ void receive()
                     MPI_Send(&result, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                 } else {
                     // If we initiated the search, we can warn the master the process that the algorithm is over
-
-                    // printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
 
                     MPI_Send(&id_p, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                     MPI_Send(&p, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
@@ -287,8 +276,6 @@ void receive()
                 if (caller == id_p) {
                     // if we happen to be the caller, the search is over
 
-                    // printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
-
                     MPI_Send(&holder, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                     MPI_Send(&holder_rk, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                 } else {
@@ -300,8 +287,6 @@ void receive()
                         MPI_Send(&holder, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                         MPI_Send(&holder_rk, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                     }
-
-                    // printf("sending RESULT from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
@@ -324,14 +309,10 @@ void receive()
                 if (dest.hash  == -1) {
                     // the successor is in charge of the key we are looking for
 
-                    // printf("sending SEARCH from (%d,%d) to (%d,%d)\n", p, id_p, dest.id, dest.hash);
-
                     MPI_Send(&hash, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                     MPI_Send(&id_p, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                 } else {
                     // just forwarding the request to the next target
-
-                    // printf("sending FORWARD from (%d,%d) to (%d,%d)\n", p, id_p, dest.id, dest.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, dest.id, FORWARD, MPI_COMM_WORLD);
                     MPI_Send(&id_p, 1, MPI_INT, dest.id, FORWARD, MPI_COMM_WORLD);
@@ -351,7 +332,7 @@ void receive()
                     MPI_Send(&hash, 1, MPI_INT, reverse_p[i], JOINED, MPI_COMM_WORLD);
                 }
 
-                MPI_Send(&id_p, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD); // TODO: make sure this is the right place for this...
+                MPI_Send(&id_p, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD);
 
                 break;
 
@@ -362,7 +343,7 @@ void receive()
                 MPI_Recv(&new_peer.id, 1, MPI_INT, MPI_ANY_SOURCE, JOINED, MPI_COMM_WORLD, &status);
                 MPI_Recv(&new_peer.hash, 1, MPI_INT, MPI_ANY_SOURCE, JOINED, MPI_COMM_WORLD, &status);
 
-                printf("[DEBUG] (%d,%d) has been informed of the existence of (%d,%d)\n", p, id_p, new_peer.id, new_peer.hash);
+                printf("(%d,%d) has been informed of the existence of (%d,%d). Printing finger table:\n", p, id_p, new_peer.id, new_peer.hash);
 
                 for (int i = 0; i < M; i++) {
                     int key = (id_p + (1 << i)) % (1 << M);
@@ -380,7 +361,7 @@ void receive()
                         }
                     }
 
-                    printf("[DEBUG] (%d,%d) entry %d holder (%d,%d)\n", p, id_p, key, finger_p[i].id, finger_p[i].hash);
+                    printf("(%d,%d) entry %d holder (%d,%d)\n", p, id_p, key, finger_p[i].id, finger_p[i].hash);
                 }
 
                 break;
@@ -436,8 +417,10 @@ void join_dht(int rk, int entry_rk)
     printf("\nFinger table of the new peer (%d,%d):\n", rk, id);
 
     for (int i = 0; i < M; i++) {
-        printf("%d: (%d,%d)\n", finger_keys[i], finger_holders[i].id, finger_holders[i].hash);
+        printf("(%d,%d) entry %d holder (%d,%d)\n", rk, id, finger_keys[i], finger_holders[i].id, finger_holders[i].hash);
     }
+
+    printf("\n");
 
     MPI_Send(&id, 1, MPI_INT, succ_rk, NOTIFY, MPI_COMM_WORLD);
 }
