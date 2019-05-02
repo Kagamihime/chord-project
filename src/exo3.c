@@ -14,13 +14,18 @@
 #define LOOKUP 4
 #define FINISHED 5
 
+// Tags added for the joining process
+#define NOTIFY 6
+#define JOINED 7
+
 /* the maximum of keys one site can have */
 #define MAX_CAPACITY 10
 
 /* NODE SPECIFIC VARIABLES */
 int p; /* rank of the site */
 int id_p; /*chord identifier f(p) */
-ID finger_p[NB_PEERS]; /* finger table of p */
+ID finger_p[M]; /* finger table of p */
+int reverse_p[NB_PEERS]; // MPI Ranks
 ID succ_p;  /* the node's successor */
 int keys_p[MAX_CAPACITY]; /* the keys that belong to node p : note that here we don't mind about the keys */
 
@@ -52,6 +57,20 @@ int find_responsible(int val)
 void simulateur(void)
 {
     int max = (1 << M) - 1;
+    int next_peers[NB_PEERS][M];
+    int rev_lists[NB_PEERS][NB_PEERS];
+
+    for (int i = 0; i < NB_PEERS; i++) {
+        for (int j = 0; j < M; j++) {
+            next_peers[i][j] = -1;
+        }
+    }
+
+    for (int i = 0; i < NB_PEERS; i++) {
+        for (int j = 0; j < NB_PEERS; j++) {
+            rev_lists[i][j] = -1;
+        }
+    }
 
     for (int i = 0; i < NB_PEERS; i++) {
         nodes[i] = rand() % max;
@@ -64,28 +83,49 @@ void simulateur(void)
     }
 
     for (int i = 0; i < NB_PEERS; i++) {
-        int rank = nodes[i];
+        int id = nodes[i];
 
-        MPI_Send(&rank, 1, MPI_INT, i + 1, INIT, MPI_COMM_WORLD);
+        MPI_Send(&id, 1, MPI_INT, i + 1, INIT, MPI_COMM_WORLD);
 
-        for (int j = 0; j < NB_PEERS; j++) {
+        for (int j = 0; j < M; j++) {
             int val = (nodes[i] + (1 << j)) % (1 << M);
             int respo = find_responsible(val) + 1;
 
             MPI_Send(&respo, 1, MPI_INT, i + 1, INIT, MPI_COMM_WORLD);
             MPI_Send(&nodes[respo - 1], 1, MPI_INT, i + 1, INIT, MPI_COMM_WORLD);
+
+            next_peers[i][j] = respo;
         }
+    }
+
+    for (int rev_list_idx = 0; rev_list_idx < NB_PEERS; rev_list_idx++) {
+        for (int next_peers_idx = 0; next_peers_idx < NB_PEERS; next_peers_idx++) {
+            for (int i = 0; i < M; i++) {
+                if (next_peers[next_peers_idx][i] - 1 == rev_list_idx) {
+                    for (int j = 0; j < NB_PEERS; j++) {
+                        if (rev_lists[rev_list_idx][j] == -1) {
+                            rev_lists[rev_list_idx][j] = next_peers_idx + 1;
+                            break;
+                        }
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        MPI_Send(&rev_lists[rev_list_idx], NB_PEERS, MPI_INT, rev_list_idx + 1, INIT, MPI_COMM_WORLD);
     }
 }
 
 // The function used by the nodes to received the values
 // of their finger tables that the master process
 // has sent them
-void rcv_finger()
+void recv_finger()
 {
     MPI_Status status;
 
-    for (int i = 0; i < NB_PEERS; i++) {
+    for (int i = 0; i < M; i++) {
         int val = 0, hash = 0;
 
         MPI_Recv(&val, 1, MPI_INT, 0, INIT, MPI_COMM_WORLD, &status);
@@ -98,13 +138,11 @@ void rcv_finger()
     succ_p = finger_p[0];
 }
 
-void show_finger()
+void recv_reverse()
 {
-    printf("I AM NODE %d this is my finger table\n", p);
+    MPI_Status status;
 
-    for (int i = 0; i < NB_PEERS; i++) {
-        printf("%d : %d contact %d\n", i, finger_p[i].hash, finger_p[i].id);
-    }
+    MPI_Recv(&reverse_p, NB_PEERS, MPI_INT, 0, INIT, MPI_COMM_WORLD, &status);
 }
 
 // The function that returns the ID j such as the hash belongs in [j , id_p[
@@ -119,7 +157,7 @@ ID find_next(int hash)
         .id = -1,
     };
 
-    for (int i = NB_PEERS - 1; i >= 0; i--) {
+    for (int i = M - 1; i >= 0; i--) {
         if (finger_p[i].hash < id_p) {
             if (hash >= finger_p[i].hash && hash < id_p) {
                 return finger_p[i];
@@ -146,7 +184,7 @@ int contains_key(int hash)
 // can be reached by p
 int contains_finger(int rank)
 {
-    for (int i = 0; i < NB_PEERS; i++) {
+    for (int i = 0; i < M; i++) {
         if (finger_p[i].id == rank) {
             return 1;
         }
@@ -164,6 +202,9 @@ void receive()
         int lookup_caller;
         ID dest;
 
+        int sender;
+        ID new_peer;
+
         MPI_Recv(&hash, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
         switch (status.MPI_TAG) {
@@ -176,7 +217,7 @@ void receive()
 
                 ID target = find_next(hash);
 
-                printf("Process (%d, %d) received a FORWARD.\n", p, id_p);
+                // printf("Process (%d, %d) received a FORWARD.\n", p, id_p);
 
                 if (status.MPI_SOURCE == p) {
                     printf("problem\n");
@@ -188,14 +229,14 @@ void receive()
                     // If the key isn't included in any of the finger table's intervals
                     // the successor is in charge of the key, we must warn it
 
-                    printf("sending SEARCH from (%d,%d) to  SUCCESSOR (%d,%d)\n", p, id_p, succ_p.id, succ_p.hash);
+                    // printf("sending SEARCH from (%d,%d) to  SUCCESSOR (%d,%d)\n", p, id_p, succ_p.id, succ_p.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                 } else {
                     // else juste forward the request to the process found earlier
 
-                    printf("sending FORWARD from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
+                    // printf("sending FORWARD from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, target.id, FORWARD, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, FORWARD, MPI_COMM_WORLD);
@@ -215,8 +256,8 @@ void receive()
 
                     ID target = find_next(caller);
 
-                    printf("process (%d, %d) contains the key.\n", p, id_p);
-                    printf("sending RESULT from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
+                    // printf("process (%d, %d) contains the key.\n", p, id_p);
+                    // printf("sending RESULT from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
@@ -226,7 +267,7 @@ void receive()
                 } else {
                     // If we initiated the search, we can warn the master the process that the algorithm is over
 
-                    printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
+                    // printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
 
                     MPI_Send(&id_p, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                     MPI_Send(&p, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
@@ -246,7 +287,7 @@ void receive()
                 if (caller == id_p) {
                     // if we happen to be the caller, the search is over
 
-                    printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
+                    // printf("sending FINISHED from (%d,%d) to (0)\n", p, id_p);
 
                     MPI_Send(&holder, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                     MPI_Send(&holder_rk, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
@@ -260,7 +301,7 @@ void receive()
                         MPI_Send(&holder_rk, 1, MPI_INT, lookup_caller, FINISHED, MPI_COMM_WORLD);
                     }
 
-                    printf("sending RESULT from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
+                    // printf("sending RESULT from (%d,%d) to (%d,%d)\n", p, id_p, target.id, target.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
                     MPI_Send(&caller, 1, MPI_INT, target.id, RESULT, MPI_COMM_WORLD);
@@ -283,17 +324,63 @@ void receive()
                 if (dest.hash  == -1) {
                     // the successor is in charge of the key we are looking for
 
-                    printf("sending SEARCH from (%d,%d) to (%d,%d)\n", p, id_p, dest.id, dest.hash);
+                    // printf("sending SEARCH from (%d,%d) to (%d,%d)\n", p, id_p, dest.id, dest.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                     MPI_Send(&id_p, 1, MPI_INT, succ_p.id, SEARCH, MPI_COMM_WORLD);
                 } else {
                     // just forwarding the request to the next target
 
-                    printf("sending FORWARD from (%d,%d) to (%d,%d)\n", p, id_p, dest.id, dest.hash);
+                    // printf("sending FORWARD from (%d,%d) to (%d,%d)\n", p, id_p, dest.id, dest.hash);
 
                     MPI_Send(&hash, 1, MPI_INT, dest.id, FORWARD, MPI_COMM_WORLD);
                     MPI_Send(&id_p, 1, MPI_INT, dest.id, FORWARD, MPI_COMM_WORLD);
+                }
+
+                break;
+
+            case NOTIFY:
+
+                for (int i = 0; i < NB_PEERS; i++) {
+                    if (reverse_p[i] == -1) {
+                        break;
+                    }
+
+                    MPI_Send(&id_p, 1, MPI_INT, reverse_p[i], JOINED, MPI_COMM_WORLD);
+                    MPI_Send(&status.MPI_SOURCE, 1, MPI_INT, reverse_p[i], JOINED, MPI_COMM_WORLD);
+                    MPI_Send(&hash, 1, MPI_INT, reverse_p[i], JOINED, MPI_COMM_WORLD);
+                }
+
+                MPI_Send(&id_p, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD); // TODO: make sure this is the right place for this...
+
+                break;
+
+            case JOINED:
+
+                sender = hash;
+
+                MPI_Recv(&new_peer.id, 1, MPI_INT, MPI_ANY_SOURCE, JOINED, MPI_COMM_WORLD, &status);
+                MPI_Recv(&new_peer.hash, 1, MPI_INT, MPI_ANY_SOURCE, JOINED, MPI_COMM_WORLD, &status);
+
+                printf("[DEBUG] (%d,%d) has been informed of the existence of (%d,%d)\n", p, id_p, new_peer.id, new_peer.hash);
+
+                for (int i = 0; i < M; i++) {
+                    int key = (id_p + (1 << i)) % (1 << M);
+                    ID holder = finger_p[i];
+
+                    if (holder.hash == sender) {
+                        if (new_peer.hash < holder.hash) {
+                            if (!(key > new_peer.hash && key <= holder.hash)) {
+                                finger_p[i] = new_peer;
+                            }
+                        } else {
+                            if (!(key <= holder.hash || key > new_peer.hash)) {
+                                finger_p[i] = new_peer;
+                            }
+                        }
+                    }
+
+                    printf("[DEBUG] (%d,%d) entry %d holder (%d,%d)\n", p, id_p, key, finger_p[i].id, finger_p[i].hash);
                 }
 
                 break;
@@ -305,8 +392,6 @@ void receive()
                 return;
             default:
                 printf("process %d has received an unknown message \n", p);
-
-                break;
         }
     }
 }
@@ -329,8 +414,6 @@ void join_dht(int rk, int entry_rk)
     MPI_Recv(&succ, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
     MPI_Recv(&succ_rk, 1, MPI_INT, entry_rk, FINISHED, MPI_COMM_WORLD, &status);
 
-    printf("I'm (%d,%d) and my successor is (%d,%d)!\n", rk, id, succ_rk, succ);
-
     for (int i = 0; i < M; i++) {
         int entry = (id + (1 << i)) % (1 << M);
         int holder = -1, holder_rk = -1;
@@ -350,13 +433,13 @@ void join_dht(int rk, int entry_rk)
         }
     }
 
-    printf("\nFinger table of the new peer:\n");
+    printf("\nFinger table of the new peer (%d,%d):\n", rk, id);
 
     for (int i = 0; i < M; i++) {
         printf("%d: (%d,%d)\n", finger_keys[i], finger_holders[i].id, finger_holders[i].hash);
     }
 
-    MPI_Send(&id, 1, MPI_INT, 0, FINISHED, MPI_COMM_WORLD);
+    MPI_Send(&id, 1, MPI_INT, succ_rk, NOTIFY, MPI_COMM_WORLD);
 }
 
 int main(int argc, char *argv[])
@@ -382,8 +465,8 @@ int main(int argc, char *argv[])
     } else if (p != nb_proc - 1) {
         MPI_Recv(&id_p, 1, MPI_INT, 0, INIT, MPI_COMM_WORLD, &status);
 
-        rcv_finger();
-        //show_finger();
+        recv_finger();
+        recv_reverse();
     }
 
     // Waiting for everyone to be initialized before moving on
@@ -394,8 +477,6 @@ int main(int argc, char *argv[])
 
         // Waiting for the reception of the result
         MPI_Recv(&new_peer_id, 1, MPI_INT, MPI_ANY_SOURCE, FINISHED, MPI_COMM_WORLD, &status);
-
-        printf("[DEBUG] The new peer is (%d,%d)\n", nb_proc - 1, new_peer_id);
 
         // Broadcasting a message FINISHED to stop all the processes
         for (int i = 1; i < nb_proc; i++) {
