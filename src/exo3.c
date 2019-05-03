@@ -25,7 +25,7 @@
 int p; /* rank of the site */
 int id_p; /*chord identifier f(p) */
 ID finger_p[M]; /* finger table of p */
-int reverse_p[NB_PEERS]; // MPI Ranks
+int reverse_p[NB_PEERS]; // MPI ranks of the peers having this site in their finger tables
 ID succ_p;  /* the node's successor */
 int keys_p[MAX_CAPACITY]; /* the keys that belong to node p : note that here we don't mind about the keys */
 
@@ -98,6 +98,7 @@ void simulateur(void)
         }
     }
 
+    // This is for sending the reverse_p tables for each peers
     for (int rev_list_idx = 0; rev_list_idx < NB_PEERS; rev_list_idx++) {
         for (int next_peers_idx = 0; next_peers_idx < NB_PEERS; next_peers_idx++) {
             for (int i = 0; i < M; i++) {
@@ -138,6 +139,8 @@ void recv_finger()
     succ_p = finger_p[0];
 }
 
+// This function is used by the peers to receive their reverse_p tables from
+// the master process
 void recv_reverse()
 {
     MPI_Status status;
@@ -179,7 +182,6 @@ int contains_key(int hash)
     return 1;
 }
 
-
 // Function that returns true if the process rank
 // can be reached by p
 int contains_finger(int rank)
@@ -193,13 +195,14 @@ int contains_finger(int rank)
     return 0;
 }
 
+// Main procedure of the DHT's peers
 void receive()
 {
     MPI_Status status;
 
     for (;;) {
         int hash, caller, result, holder, holder_rk;
-        int lookup_caller;
+        int lookup_caller; // Used for routing back to the peer which called `lookup`
         ID dest;
 
         int sender;
@@ -298,8 +301,8 @@ void receive()
                 break;
 
             case LOOKUP:
-                // Message received by the process that must initiate the algorithm
-                //
+                // Message received when a peer needs to search for the holder
+                // of a key
 
                 lookup_caller = status.MPI_SOURCE;
 
@@ -321,6 +324,9 @@ void receive()
                 break;
 
             case NOTIFY:
+                // Message used in the joining process to indicate that the
+                // entry point must notify the peers in reverse_p of the
+                // existence of a new peer
 
                 for (int i = 0; i < NB_PEERS; i++) {
                     if (reverse_p[i] == -1) {
@@ -337,6 +343,9 @@ void receive()
                 break;
 
             case JOINED:
+                // Message used to indicate a peer that they may need to update
+                // their finger table, because a new peer joined the DHT which
+                // may be the new holder of one of their finger table's entries
 
                 sender = hash;
 
@@ -367,8 +376,8 @@ void receive()
                 break;
 
             case FINISHED:
-                // Message sent by the master process when it has received the result
-                // Every process receives this message once everyting is over
+                // Message received from the master process whenever the process
+                // should stop
 
                 return;
             default:
@@ -377,6 +386,7 @@ void receive()
     }
 }
 
+// Main procedure of the new peer which joins the DHT
 void join_dht(int rk, int entry_rk)
 {
     MPI_Status status;
